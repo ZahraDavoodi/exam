@@ -1,0 +1,1066 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use App\Http\Requests;
+use DB;
+use Illuminate\Support\Facades\Redirect;
+use Mail;
+use Session;
+
+
+use App\Http\Controllers\SuperAdminController;
+
+include 'lib/nusoap.php';
+use nusoap_client;
+	    
+
+class OrderController extends Controller
+{
+    
+    
+    public function add()
+    {
+        SuperAdminController::AdminAuthCheck();
+        $all_tours = DB::table('tbl_tour')->get();
+        $all_customers = DB::table('tbl_customer')->get();
+        $order_status=DB::table('tbl_order_status')->orderBy('os_id','ASC')->get();
+        $tour_rooms=DB::table('tbl_room')->get();
+        $traveler_age=DB::table('traveler_age')->get();
+        return View('admin.add_order')->with(['all_tours'=>$all_tours,'all_customers'=>$all_customers,'order_status'=>$order_status,'tour_rooms'=>$tour_rooms,'traveler_age'=>$traveler_age]);
+    }
+    public function all()
+    {
+        SuperAdminController::AdminAuthCheck();
+        $all_orders = DB::table('tbl_order')->get();
+        $all_customers = DB::table('tbl_customer')->get();
+        return View('admin.all_orders')->with(['all_orders'=>$all_orders,'all_customers'=>$all_customers]);
+
+    }
+    public function save(Request $request)
+    {
+        SuperAdminController::AdminAuthCheck();
+
+        // add all new order data in DB ::
+        $data = array();
+        $data['customer_id'] = $request->customer_id;
+        $data['order_total'] = $request->order_price;
+        $data['order_status'] = $request->order_status;
+       
+        $data['created_at'] = date('Y-m-d H:i:s');
+        $data['tour_id'] = $request->tour_id;
+        $data['order_description'] = $request->order_description;
+
+        if ($request->publication_status == 'on') {
+            $data['publication_status'] = 1;
+        } else {
+            $data['publication_status'] = 0;
+        }
+        $order_id = DB::table('tbl_order')->insertGetId($data);
+        if ($order_id > 0) {
+            $data_room['order_id'] = $order_id;
+            $data_room['baby02_num'] = $request->baby02_num;
+            $data_room['baby26_num'] = $request->baby26_num;
+            $data_room['baby612_num'] = $request->baby612_num;
+            $data_room['man_num'] = $request->man_num;
+            $data_room['singleRoom_num'] = $request->singleRoom_num;
+            $data_room['doubleRoom_num'] = $request->doubleRoom_num;
+            $data_room['doublePlusRoom_num'] = $request->doublePlusRoom_num;
+            $data_room['tripleRoom_num'] = $request->tripleRoom_num;
+            $data_room['triplePlusRoom_num'] = $request->triplePlusRoom_num;
+            $data_room['suites4_num'] = $request->suites4_num;
+            $data_room['suites5_num'] = $request->suites5_num;
+            $data_room['suites6_num'] = $request->suites6_num;
+            $data_room['suites7_num'] = $request->suites7_num;
+            $data_room['suites8_num'] = $request->suites8_num;
+            $data_room['suites9_num'] = $request->suites9_num;
+            $data_room['withoutRoom_num'] = $request->withoutRoom_num;
+
+            //$c1=$data['order_id'].'-'.$data['baby02_num'].'-'.$data['baby26_num'].'-'.$data['baby612_num'].'-'.$data['man_num'].'-'.$data['singleRoom_num'].'-'. $data['doubleRoom_num'].'-'.$data['doublePlusRoom_num'].'-'.$data['tripleRoom_num'].'-'.$data['triplePlusRoom_num'].'-'.$data['suites4_num'].'-'.$data['withoutRoom_num'];
+
+            $or_id = DB::table('tbl_order_room')->insertGetId($data_room);
+            if ($or_id > 0) {
+                // insert traveler_data
+
+                    $tour_id = $data['tour_id'];
+                    $isDeleted = DB::table('tbl_traveler')
+                        ->where('order_id', $order_id)
+                        ->delete();
+                    $count = count($request->traveler_name);
+
+                    for ($i = 1; $i <= $count; $i++) {
+                        $tr_update['order_id'] = $order_id;
+                        $tr_update['traveler_name'] = $request->traveler_name[$i];
+                        //$hr_info[$i][2]
+                        $tr_update['traveler_code'] = $request->traveler_code[$i];
+                        //$hr_info[$i][3]
+                        $tr_update['traveler_age'] = $request->traveler_age[$i];
+                        //$hr_info[$i][4]
+                        $tr_update['room_type'] = $request->room_type[$i];
+                        $tr_id = DB::table('tbl_traveler')->insert($tr_update);
+                    }
+                        session::put('msg', 'سفارش جدید با موفقیت اضافه شد');
+                        return Redirect::to('/okAdminShod/order/add');
+                }
+
+            } else {
+                echo 'false';
+            }
+
+        }
+    public function unactive($order_id)
+    {
+        SuperAdminController::AdminAuthCheck();
+        // Make Publication_status =  0
+        DB::table('tbl_order')
+            ->where('order_id',$order_id)
+            ->update(['publication_status'=>0]);
+        session::put('msg','وضعیت سفارش به حالت غیرفعال تغییر یافت.');
+        return Redirect::to('okAdminShod/order/all');
+    }
+    public function active($order_id)
+    {
+        SuperAdminController::AdminAuthCheck();
+        // Make Publication_status =  1
+        DB::table('tbl_order')
+            ->where('order_id',$order_id)
+            ->update(['publication_status'=>1]);
+        session::put('msg','وضعیت سفارش به حالت فعال تغییر یافت.');
+        return Redirect::to('okAdminShod/order/all');
+    }
+    public function edit($order_id)
+    {
+        SuperAdminController::AdminAuthCheck();
+        //echo $order_id;
+
+        $data =  DB::table('tbl_order')
+            ->where('order_id',$order_id)
+            ->get()->first();
+        $order_room=DB::table('tbl_order_room')->where('order_id',$order_id)->get();
+       
+        $all_tours = DB::table('tbl_tour')->get();
+        $all_customers = DB::table('tbl_customer')->get();
+         $all_hotels = DB::table('tbl_hotel')->get();
+        $order_status=DB::table('tbl_order_status')->get();
+        $all_categories = DB::table('tbl_order')->get();
+        $tour_rooms=DB::table('tbl_room')->get();
+        $tour_traveler=DB::table('tbl_traveler')->where('order_id',$order_id)->get();
+        $traveler_age=DB::table('traveler_age')->get();
+        return View('admin.edit_order')->with(['order_infos'=>$data,'all_tours'=>$all_tours,'all_customers'=>$all_customers,'order_status'=>$order_status,'order_id'=>$order_id,'order_room'=>$order_room,'tour_rooms'=>$tour_rooms,'tour_traveler'=>$tour_traveler,'traveler_age'=>$traveler_age,'all_hotels'=>$all_hotels]);
+
+    }
+    public function done_edit(Request $request , $order_id)
+    {
+        SuperAdminController::AdminAuthCheck();
+        //echo $order_id;
+        $update_info = array();
+        $update_info['customer_id'] = $request->customer_id;
+        $update_info['order_total'] = $request->order_price;
+        $update_info['order_status'] = $request->order_status;
+        $update_info['created_at'] = date('Y-m-d H:i:s');
+        $update_info['tour_id'] = $request->tour_id;
+        if(isset( $request->hotel_id)){$update_info['hotel_id'] = $request->hotel_id;}else{$update_info['hotel_id'] =0;}
+        
+        $update_info['order_description'] = $request->order_description;
+        if ($request->publication_status == 'on') {
+            $update_info['publication_status'] = 1;
+        }else
+        {
+            $update_info['publication_status'] = 0;
+        }
+
+        $isUpdated = DB::table('tbl_order')
+            ->where('order_id',$order_id)
+            ->update($update_info);
+            
+        if ($isUpdated) {
+            if(isset($request->singleRoom_num)){
+                  $isDeleted = DB::table('tbl_order_room')->where('order_id',$order_id)->delete();
+
+                $data_room['order_id'] = $order_id;
+                $data_room['baby02_num'] = $request->baby02_num;
+                $data_room['baby26_num'] = $request->baby26_num;
+                $data_room['baby612_num'] = $request->baby612_num;
+                $data_room['man_num'] = $request->man_num;
+                $data_room['singleRoom_num'] = $request->singleRoom_num;
+                $data_room['doubleRoom_num'] = $request->doubleRoom_num;
+                $data_room['doublePlusRoom_num'] = $request->doublePlusRoom_num;
+                $data_room['tripleRoom_num'] = $request->tripleRoom_num;
+                $data_room['triplePlusRoom_num'] = $request->triplePlusRoom_num;
+                $data_room['suites4_num'] = $request->suites4_num;
+                $data_room['suites5_num'] = $request->suites5_num;
+                $data_room['suites6_num'] = $request->suites6_num;
+                $data_room['suites7_num'] = $request->suites7_num;
+                $data_room['suites8_num'] = $request->suites8_num;
+                $data_room['suites9_num'] = $request->suites9_num;
+                $data_room['withoutRoom_num'] = $request->withoutRoom_num;
+
+                //$c1=$data['order_id'].'-'.$data['baby02_num'].'-'.$data['baby26_num'].'-'.$data['baby612_num'].'-'.$data['man_num'].'-'.$data['singleRoom_num'].'-'. $data['doubleRoom_num'].'-'.$data['doublePlusRoom_num'].'-'.$data['tripleRoom_num'].'-'.$data['triplePlusRoom_num'].'-'.$data['suites4_num'].'-'.$data['withoutRoom_num'];
+
+                $or_id = DB::table('tbl_order_room')->insertGetId($data_room);
+            }
+                    // insert traveler_data
+                  $isDeleted = DB::table('tbl_traveler')
+                        ->where('order_id', $order_id)
+                        ->delete();
+                    $count = count($request->traveler_name);
+                
+                    for ($i = 1; $i <= $count; $i++) {
+                        $tr_update['order_id'] = $order_id;
+                        $tr_update['traveler_name'] = $request->traveler_name[$i];
+                        //$hr_info[$i][2]
+                        $tr_update['traveler_code'] = $request->traveler_code[$i];
+                        //$hr_info[$i][3]
+                         
+                        $tr_update['traveler_age'] = $request->traveler_age[$i];
+                        //$hr_info[$i][4]
+                        if(isset( $request->room_type[$i])){$room_type=$request->room_type[$i];}else{ $room_type=0;}
+                        $tr_update['room_type'] = $room_type;
+                        
+                        if($request->traveler_submit[$i]=='on'){
+                            $tr_update['traveler_submit']= 1;
+                        }else
+                        {
+                            $tr_update['traveler_submit']=0;
+                        }
+                        
+                        $tr_id = DB::table('tbl_traveler')->insert($tr_update);
+                    }
+                    session::put('msg', 'سفارش با موفقیت ویرایش شد.');
+                    return Redirect::to('/okAdminShod/order/all');
+               
+
+            } else {
+                
+                    session::put('msg', 'سفارش با موفقیت ویرایش نشد.');
+                    return Redirect::to('/okAdminShod/order/all');
+            }
+
+        }
+    public function delete($order_id)
+    {
+        SuperAdminController::AdminAuthCheck();
+        $isDeleted = DB::table('tbl_order')
+            ->where('order_id',$order_id)
+            ->delete();
+
+        if ($isDeleted) {
+
+            $isDeleted1 = DB::table('tbl_order_room')
+                ->where('order_id',$order_id)
+                ->delete();
+            if($isDeleted1)
+            {
+                $isDeleted2 = DB::table('tbl_traveler')
+                ->where('order_id',$order_id)
+                ->delete();
+
+                if($isDeleted2){
+                    session::put('msg','سفارش با موفقیت حذف شد.');
+                    return Redirect::to('/okAdminShod/order/all');
+                }else{
+                    session::put('msg','سفارش با موفقیت حذف نشد.');
+                    return Redirect::to('/okAdminShod/order/all');
+                }
+            }
+            else{
+                session::put('msg','سفارش حذف نشد.');
+                return Redirect::to('/okAdminShod/order/all');
+            }
+
+        }
+        else
+        {
+            session::put('msg','سفارش حذف نشد.');
+            return Redirect::to('/okAdminShod/order/all');
+        }
+    }
+    //frontend order
+    public function order_login (Request $request){
+        
+         if($request->ajax())
+        {
+            $customer_email = $request->customer_email;
+            $customer_password =md5($request->customer_password);
+
+            $resutl = DB::table('tbl_customer')
+                ->where('customer_email',$customer_email)
+                ->where('customer_password',$customer_password)
+                ->first();
+            if ($resutl) {
+
+                session::put('customer_email',$resutl->customer_email);
+                session::put('customer_name',$resutl->customer_name);
+                session::put('customer_id',$resutl->customer_id);
+                $c=$resutl->customer_id;
+                return response()->json(['customer_id'=>$c,'error'=>0,'msg'=>'اطلاعات صحیح است']);
+            }else
+            {
+                return response()->json(['error'=>1,'msg'=>'اطلاعات صحیح نیست']);
+            }
+
+        }
+      
+    }
+    public function order_register_guest(Request $request)
+
+    {
+        $resutl = DB::table('tbl_customer')->where('customer_email',$request->customer_email)->get();
+        if(count($resutl)>0)
+        {
+            return response()->json(['error'=>1,'msg'=>'قبلا با این آدرس ایمیل عضو شدید، لطفا وارد شوید.']);
+        }
+
+
+
+        $data = array();
+        $data['customer_name'] = $request->customer_name;
+        $data['customer_lname'] = $request->customer_lname;
+        $data['customer_email'] = $request->customer_email;
+        $data['customer_phone'] = $request->customer_phone;
+        $data['customer_code'] = $request->customer_code;
+        $data['customer_address'] = $request->customer_address;
+        $data['publication_status'] = 1;
+
+        $c1=$data['customer_name'].'-'.$data['customer_lname'].'-'.$data['customer_email'].'-'.$data['customer_phone'].'-'.$data['customer_code'].'-'.$data['customer_address'];
+        // return response()->json(['error' => '1', 'msg' => 'کاربر جدید ثبت نشد.','a']);
+        if ($request->customer_type == 3) {
+            $data['customer_type'] = 0;
+        }
+
+        $insertedId = DB::table('tbl_customer')
+            ->insertGetId($data);
+        echo $insertedId;
+        if ($insertedId > 0) {
+            session::put('customer_id', $insertedId);
+            return response()->json(['error' => '0','msg' => 'اطلاعات شما ثبت شد.']);
+        } else {
+            return response()->json(['error' => '1', 'msg' => 'کاربر جدید ثبت نشد.']);
+        }
+    }
+    public function order_hotel_info(Request $request)
+    {
+        $data = array();
+        $data['tour_id'] = $request->tour_id;
+        $data['hotel_id'] = $request->hotel_id;
+        $result=DB::table('tbl_hotel_room')
+            ->where(['hotel_id'=>$data['hotel_id'],'tour_id'=>$data['tour_id']])->get();
+
+        return response()->json(['error' => '0', 'result' => $result]);
+    }
+    
+    public function order_tour_info(Request $request)
+    {
+        $data = array();
+        $data['tour_id'] = $request->tour_id;
+        
+        $result=DB::table('tbl_tour')
+            ->where(['tour_id'=>$data['tour_id']])->first();
+     $tour_price=$result->tour_price;
+        return response()->json(['error' => '0', 'result' => $tour_price]);
+    }
+    public function  add_traveler(Request $request)
+    {
+        $data = json_decode($request->getContent(), true);
+        $c1=DB::table('tbl_traveler')->insertGetId($data);
+        if($c1>0){
+            return response()->json(['error' => '0', 'msg' => $c1]);
+        }else{
+            return response()->json(['error' => '1']);
+        }
+
+    }
+    public function add_order(Request $request)
+    {
+        
+        $data = array();
+        $data['tour_id'] = $request->tour_id;
+        $data['hotel_id'] = $request->hotel_id;
+        $data['customer_id']= $request->customer_id;
+        $data['order_total']= $request->order_total;
+        $data['order_num']=$request->order_num;
+        $data['created_at']=date('Y-m-d h:i:s');
+        $data['order_trackingCode']=substr(str_shuffle("0123456789abcdefghijklmnopqrstvwxyzABCDEFGHIJKLMNOPQRSTVWXYZ"), 0, 4);
+        
+         $order_id=DB::table('tbl_order')->insertGetId($data);
+         
+          $tour=DB::table('tbl_tour')->where('tour_id',$data['tour_id'])->first();
+        
+          $ajancy_id=$tour->ajancy_id;
+         
+           $data_factorNum= $ajancy_id.'/'. $data['tour_id'] .'/'. $order_id;
+           
+              DB::table('tbl_order')->where('order_id',$order_id)->update(['order_factorNum'=>$data_factorNum]);
+           
+    
+        $tour=1;
+        $tour=DB::table('tbl_tour')->where('tour_id',$data['tour_id'])->increment('tour_sellNumber');
+        
+        $msg=$data['tour_id'].'-'.$data['hotel_id'].'-'.$data['customer_id'].'-'.$data['order_total'].'-'.$data['order_num'].'-'.$data['order_trackingCode'].'-'.$data['created_at'].'-order id is'.$order_id.'-'.$tour;
+        if($order_id>0 &&$tour>0 ){
+            return response()->json(['error' => '0', 'order_id' => $order_id,'msg'=>$msg]);
+        }else{
+            return response()->json(['error' => '1', 'order_id' => '0','msg'=>$msg]);
+        }
+    }
+    // public  function add_rooms(Request $request)
+    // {
+    //     // $c1='order_id'.$request->order_id.'baby02_num'.$request->baby02_num.'baby26_num'.$request->baby26_num.'baby612_num'.$request->baby612_num.'man'.$request->man_num.'singleRoom_num'.$request->singleRoom_num.'doubleRoom_num'.$request->doubleRoom_num.'doublePlusRoom_num'.$request->doublePlusRoom_num.'tripleRoom_num'.$request->tripleRoom_num.'triplePlusRoom_num'.$request->triplePlusRoom_num.'suites_num'.$request->suites_num.'withoutRoom_num'.$request->withoutRoom_num;
+    //     $data = array();
+    //     $data['order_id'] = $request->order_id;
+    //     $data['baby02_num'] = $request->baby02_num;
+    //     $data['baby26_num']= $request->baby26_num;
+    //     $data['baby612_num']= $request->baby612_num;
+    //     $data['man_num']=$request->man_num;
+    //     $data['singleRoom_num']=$request->singleRoom_num;
+    //     $data['doubleRoom_num']=$request->doubleRoom_num;
+    //     $data['doublePlusRoom_num']=$request->doublePlusRoom_num;
+    //     $data['tripleRoom_num']=$request->tripleRoom_num;
+    //     $data['triplePlusRoom_num']=$request->triplePlusRoom_num;
+    //     $data['suites4_num']=$request->suites4;
+    //     $data['suites5_num']=$request->suites5;
+    //     $data['suites6_num']=$request->suites6;
+    //     $data['suites7_num']=$request->suites7;
+    //     $data['suites8_num']=$request->suites8;
+    //     $data['suites9_num']=$request->suites9;
+    //     $data['withoutRoom_num']=$request->withoutRoom_num;
+
+    //      $c1=$data['order_id'].'-'.$data['baby02_num'].'-'.$data['baby26_num'].'-'.$data['baby612_num'].'-'.$data['man_num'].'-'.$data['singleRoom_num'].'-'. $data['doubleRoom_num'].'-'.$data['doublePlusRoom_num'].'-'.$data['tripleRoom_num'].'-'.$data['triplePlusRoom_num'].'-'.$data['suites4_num'].'-'.$data['withoutRoom_num'];
+
+    //   $or_id=DB::table('tbl_order_room')->insertGetId($data);
+    //   $or_id=1;
+    //     if($or_id>0){
+    //         return response()->json(['error' => '0', 'order_id' => $c1]);
+    //     }else{
+    //         return response()->json(['error' => '1']);
+    //     }
+    // }
+    public function  order_report(Request $request)
+    {
+        $data = array();
+        $data['order_id'] = $request->order_id;
+        $data['hotel_id'] = $request->hotel_id;
+        $data['tour_id'] = $request->tour_id;
+        $data['customer_id'] = $request->customer_id;
+        
+       
+       
+        
+        $tour=DB::table('tbl_tour')->where('tour_id',$data['tour_id'])->first();
+        $tour_name=$tour->tour_name;
+        $tour_wentTime=$tour->tour_wentTime;
+        $tour_backTime=$tour->tour_backTime;
+        $tour_wentHour=$tour->tour_wentHour;
+        $tour_backHour=$tour->tour_backHour;
+       
+        $tour_services=$tour->tour_services;
+        $tour_document=$tour->tour_document;
+        
+        if($tour->airLineWent_id==0 ||$tour->airLineback_id==0)
+        {
+            $tour_wentDevice=$tour->tour_wentDevice;
+            $tour_backDevice=$tour->tour_backDevice;    
+        }
+        else
+        {
+            $tour_wentDevice=$tour->airLineWent_id;
+            $tour_backDevice=$tour->airLineback_id;
+            $air_went=DB::table('tbl_airline')->where('air_id', $tour_wentDevice)->first();
+             $tour_wentDevice='هواپیمایی'.' '.$air_went->air_name;;
+            
+             $air_back=DB::table('tbl_airline')->where('air_id', $tour_backDevice)->first();
+             $tour_backDevice='هواپیمایی'.' '.$air_back->air_name;
+            
+        }
+        
+        
+        $tour_ajancy=$tour->ajancy_id;
+         $ajancy=DB::table('tbl_ajancy')->where('ajancy_id',$tour_ajancy)->first();
+         $ajancy_id=$ajancy->ajancy_id;
+         $ajancy_name=$ajancy->ajancy_name;
+         $ajancy_phone=$ajancy->ajancy_phone;
+         $ajancy_address=$ajancy->ajancy_address;
+        $ajancy_email=$ajancy->ajancy_email;
+          
+       
+       
+           
+        
+
+      if($data['hotel_id'] !=0){
+        $hotel=DB::table('tbl_hotel')->where('hotel_id',$data['hotel_id'])->first();
+        $hotel_name=$hotel->hotel_eName;
+        $hotel_services=$hotel->hotel_services;
+        }else {
+            $hotel_name='';
+            $hotel_services='';
+        }
+        
+        $customer=DB::table('tbl_customer')->where('customer_id',$data['customer_id'])->first();
+        $customer_name=$customer->customer_name;
+        $customer_code=$customer->customer_code;
+        
+        
+   
+       
+       //$c=$data['order_id'].'-'.$data['hotel_id'].'_'.$data['tour_id'].'_'.$data['customer_id'].'_'.$tour_name.'_'.$tour_wentTime.'_'.$tour_backTime.'_'.$tour_services.'_'.$hotel_name.'_'.$hotel_services.'_'.$customer_name.'-'.$customer_code;
+        return response()->json(['error' => '0', 'tour_name'=>$tour_name, 'tour_wentTime'=>$tour_wentTime,'tour_backTime'=>$tour_backTime, 'tour_wentDevice'=>$tour_wentDevice,'tour_backDevice'=>$tour_backDevice, 'tour_wentHour'=>$tour_wentHour,'tour_backHour'=>$tour_backHour,'tour_services'=>$tour_services,'tour_document'=>$tour_document,'hotel_name'=>$hotel_name,'hotel_services'=>$hotel_services,'customer_name'=>$customer_name,'customer_code'=>$customer_code,'ajancy_name'=>$ajancy_name,'ajancy_phone'=>$ajancy_phone,'ajancy_address'=>$ajancy_address,'ajancy_email'=>$ajancy_email]);
+ 
+    }
+    public function order_register(Request $request)
+
+    {
+
+        if (isset($_SESSION['customer_id'])) {
+        //if ($request->session()->has('customer_id')) {
+            return response()->json(['error'=>1,'c1'=>$c1,'customer_id'=>0 ,'msg'=>'شما وارد سایت شدید، اگر میخواهید با همین حساب کاربری سفارش جدید ثبت کنید، از بخش   عضو سایت هستم ، وارد شوید . در غیر این صورت از حساب کاربری خارج شوید.']);
+
+        }
+        else {
+             $resutl = DB::table('tbl_customer')->where('customer_email',$request->customer_email)->get();
+            if(count($resutl)>0)
+            {
+                return response()->json(['error'=>1,'msg'=>'قبلا با این آدرس ایمیل عضو شدید، لطفا وارد شوید.']);
+            }
+            else{
+                $data= array();
+                $data['customer_name'] = $request->customer_name;
+                $data['customer_lname'] = $request->customer_lname;
+                $data['customer_email'] = $request->customer_email;
+                $data['customer_phone'] = $request->customer_phone;
+                $data['customer_code'] = $request->customer_code;
+                $data['customer_address'] = $request->customer_address;
+               // $data['customer_sheba'] = $request->customer_sheba;
+                $data['publication_status'] = 0;
+                $data['changePassword'] =substr(md5(uniqid(mt_rand(), true)), 0, 5);
+                
+                $data['customer_type']=1;
+                $data['created_at']=date('Y-m-d h:i:s');
+                if($request->customer_password==$request->repassword){
+                    $data['customer_password'] =md5($request->customer_password);
+                }
+                else{
+                    return response()->json(['error'=>1,'msg'=>'رمز عبور با تکرار آن همخوانی ندارد']);
+                }
+                
+                //`customer_email`, `customer_password`, `customer_name`, `customer_lname`, `customer_phone`, `customer_address`, `customer_sheba`, `customer_type`, `changePassword`, `created_at`, `updated_at
+                $c1=$data['customer_name'].'-'.$data['customer_lname'].'-'.$data['customer_password'].'-'.$data['customer_email'].'-'.$data['customer_code'].'-'.$data['customer_phone'].'-'.$data['customer_address'].'-'.$data['customer_type'].'-'.$data['publication_status'];
+                //return response()->json(['error'=>0,'msg'=>'','c1'=>$c1]);
+
+                //$c1=$data['customer_sheba'];
+                
+                $insertedId=DB::table('tbl_customer')->insertGetId($data);
+                
+                $header = "okShod.com";
+				$email=$data['customer_email'];
+			
+				$body ="جهت فعالسازی حساب خود از لینک زیر وارد شوید"."https://okshod.com/activate/".$insertedId."/".$data['changePassword']."<br/>کد فعال سازی شما جهت ثبت نام ". " ".$data['changePassword'];
+		      
+				$data = array('name'=>$body);
+				
+				    Mail::send('mails.mail', $data, function($message) use($email) {
+                     $message->to($email, 'okshod.com')->subject('okShod روش تورهای داخلی و خارجی-');
+                     $message->from('info@okshod.com','okShod');
+              });
+               
+               
+                if($insertedId>0)
+                {
+                
+                    session::put('customer_id', $insertedId);
+                    $c=$insertedId;
+                    return response()->json(['error'=>0,'msg'=>'کد ارسالی به ایمیل خود را در  کادر وارد','c1'=>$c1,'customer_id'=> $insertedId]);
+                }
+                else{
+                    return response()->json(['error'=>1,'c1'=>$c1,'customer_id'=>0,'msg'=>'کاربر جدید وارد نشد.']);
+                }
+            }
+
+        }
+
+
+    }
+    public function tour_room(Request $request)
+
+    {
+
+            $result = DB::table('tbl_tour_room')->where('tour_id',$request->order_tour_id)->get();
+            $rooms= DB::table('tbl_room')->get();
+
+            if(count($result)>0) {
+                return response()->json([ 'result' => $result,'rooms'=>$rooms]);
+            }
+
+    }
+
+    
+     public function tour_price(Request $request)
+    {
+
+            $result = DB::table('tbl_tour')->where('tour_id',$request->tour_id)->get();
+            
+
+            
+                return response()->json([ 'result' => $result]);
+            
+
+    }
+
+
+	
+	/**
+	 * تابع تایید پرداخت
+	 * با استفاده از این تابع میتوانید درخواست تایید پرداخت را 
+	 * به بانک ملت ارسال کنید و پاسخ آن را دریافت کنید.
+	 *
+	 * @param array $params : اطلاعات دریافتی از درگاه پرداخت
+	 *
+	 * @return  void
+	 *
+	 */
+	protected function verifyPayment($params) 
+	{
+		$client = new nusoap_client( 'https://bpm.shaparak.ir/pgwchannel/services/pgw?wsdl' ) ;
+		$orderId = $params["SaleOrderId"];
+		$verifySaleOrderId = $params["SaleOrderId"];
+		$verifySaleReferenceId = $params['SaleReferenceId'];
+		$err = $client->getError();
+		if ($err) {
+			echo '<h2>Constructor error</h2><pre>' . $err . '</pre>';
+			die();
+		}	  
+		$parameters = array(
+			'terminalId'=> $this->terminal, 
+			'userName'=> $this->username, 
+			'userPassword'=> $this->password, 
+			'orderId' => $orderId,
+			'saleOrderId' => $verifySaleOrderId,
+			'saleReferenceId' => $verifySaleReferenceId);
+		$result = $client->call('bpVerifyRequest', $parameters, 'http://interfaces.core.sw.bps.com/');
+		if ($client->fault) {
+			echo '<h2>Fault</h2><pre>';
+			print_r($result);
+			echo '</pre>';
+			die();
+		} 
+		else {
+			$resultStr = $result;	
+			$err = $client->getError();
+			if ($err) {
+				echo '<h2>Error</h2><pre>' . $err . '</pre>';
+				die();
+			} 
+			else {
+				if( $resultStr == '0' ) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+	
+	/**
+	 * تابع درخواست تصفیه حساب
+	 * با استفاده از این تابع میتوانید درخواست تصفیه حساب
+	 * را به بانک ملت ارسال و نتیجه آن را دریافت کنید.
+	 *
+	 * @param array $params : اطلاعات دریافتی از درگاه پرداخت
+	 *
+	 * @return  void
+	 *
+	 
+	 * @author  Hasan Shafei [ www.netparadis.com ]
+	 */
+	protected function settlePayment($params) 
+	{
+		$client = new nusoap_client( 'https://bpm.shaparak.ir/pgwchannel/services/pgw?wsdl' ) ;
+		$orderId = $params["SaleOrderId"];
+		$settleSaleOrderId = $params["SaleOrderId"];
+		$settleSaleReferenceId = $params['SaleReferenceId'];
+		$err = $client->getError();
+		if ($err) {
+			echo '<h2>Constructor error</h2><pre>' . $err . '</pre>';
+			die();
+		}		  
+		$parameters = array(
+			'terminalId'=> $this->terminal, 
+			'userName'=> $this->username, 
+			'userPassword'=> $this->password, 
+			'orderId' => $orderId,
+			'saleOrderId' => $settleSaleOrderId,
+			'saleReferenceId' => $settleSaleReferenceId);
+		$result = $client->call('bpSettleRequest', $parameters, 'http://interfaces.core.sw.bps.com/');
+		if ($client->fault) {
+			echo '<h2>Fault</h2><pre>';
+			print_r($result);
+			echo '</pre>';
+			die();
+		} 
+		else {
+			$resultStr = $result;	
+			$err = $client->getError();
+			if ($err) {
+				echo '<h2>Error</h2><pre>' . $err . '</pre>';
+				die();
+			} 
+			else {
+				if( $resultStr == '0' ) {
+					return true;
+				}
+				return $resultStr ;
+			}
+		}
+		return false;
+	}
+	
+	
+	/**
+	 * تابع بررسی ترانش
+	 * با استفاده از این تابع میتوانید درخواست تایید و تصفیه حساب را 
+	 * ارسال کنید و از نتیجه آن آگاه شوید.
+	 *
+	 * @param array $params : اطلاعات دریافتی از درگاه پرداخت
+	 *
+	 * @return  void
+	 *
+	 * @author  Hasan Shafei [ www.netparadis.com ]
+	 */
+	public function checkPayment($params) 
+	{
+		$params["RefId"] = $params["RefId"] ;
+		$params["ResCode"] = $params["ResCode"] ;
+		$params["SaleOrderId"] = $params["SaleOrderId"] ;
+		$params["SaleReferenceId"] = $params["SaleReferenceId"] ;
+		if( $params["ResCode"] == 0 ) 
+		{
+			if( $this->verifyPayment($params) == true ) {
+				if( $this->settlePayment($params) == true ) {
+					return array(
+						"status"=>"success", 
+						"trans"=>$params["SaleReferenceId"]
+					);
+				}
+			}
+		}
+		return false;
+	}	
+	
+	protected function postRefId($refIdValue) 
+	{
+	    
+	   
+		print ('<script language="javascript" type="text/javascript"> 
+				function postRefId (refIdValue) {
+				var form = document.createElement("form");
+				form.setAttribute("method", "POST");
+				form.setAttribute("action", "https://bpm.shaparak.ir/pgwchannel/startpay.mellat");         
+				form.setAttribute("target", "_self");
+				var hiddenField = document.createElement("input");              
+				hiddenField.setAttribute("name", "RefId");
+				hiddenField.setAttribute("value", refIdValue);
+				form.appendChild(hiddenField);
+				document.body.appendChild(form);         
+				form.submit();
+				document.body.removeChild(form);
+			}
+			postRefId("' . $refIdValue . '");
+			</script>');
+	}
+	
+	protected function error($number) 
+	{
+		$err = $this->response($number);
+		echo '<!doctype html><html><head><meta charset="utf-8"><title>خطا</title></head><body dir="rtl">';
+		echo '<style>div.error{direction:rtl;background:#A80202;float:right;text-align:right;color:#fff;';
+		echo 'font-family:tahoma;font-size:13px;padding:3px 10px}</style>';
+		echo '<div class="error"><strong>خطا</strong> : ' . $err . '</div>';
+		die ;
+	}
+	
+	protected function response($number) 
+	{
+		switch($number) {
+			case 31 :
+				$err = "پاسخ نامعتبر است!";	
+				break;
+			case 17 :
+				$err = "کاربر از انجام تراکنش منصرف شده است!";
+				break;
+			case 21 :
+				$err = "پذیرنده نامعتبر است!";
+				break;
+			case 25 :
+				$err = "مبلغ نامعتبر است!";
+				break;
+			case 34 :
+				$err = "خطای سیستمی!";
+				break;
+			case 41 :
+				$err = "شماره درخواست تکراری است!";
+				break;
+			case 421 :
+				$err = "ای پی نامعتبر است!";
+				break;
+			case 412 :
+				$err = "شناسه قبض نادرست است!";
+				break;
+			case 45 :
+				$err = "تراکنش از قبل ستل شده است";
+				break;
+			case 46 :
+				$err = "تراکنش ستل شده است";
+				break;
+			case 35 :
+				$err = "تاریخ نامعتبر است";
+				break;
+			case 32 :
+				$err = "فرمت اطلاعات وارد شده صحیح نمیباشد";
+				break;
+			case 43 :
+				$err = "درخواست verify قبلا صادر شده است";
+				break;
+			
+		}
+		return $err ;
+	}
+	
+	public function payment(Request $request)
+	{			
+	    $customer_id=$request->customer_id;
+	    $produc_id=$request->tour_id;
+	    $tour_id=$request->tour_id;
+	    $order_id=$request->order_id;
+		$client = new nusoap_client( 'https://bpm.shaparak.ir/pgwchannel/services/pgw?wsdl' ) ;
+		$terminalId = '5176736';//$this->terminal;
+		$userName = 'okshod2';
+		$userPassword ='35492792'; //$this->password;
+		$orderId = rand(10000,99999);
+		$amount =(int) $request->total_price *10;
+		$localDate = date('ymj');
+		$localTime = date('His');
+		$additionalData = '';
+		$callBackUrl ='https://okshod.com/callback';
+		$payerId = 0;
+		$err = $client->getError();
+		if ($err) {
+		//-- نمايش خطا
+            echo "There was a problem connecting to Bank";
+            //exit;
+            die();
+            return response()->json(['ok'=>'خطا در برقراری ارتباط با بانک، مجددا تلاش کنید']);
+			
+		}
+		$parameters = array(
+			'terminalId' => $terminalId,
+			'userName' => $userName,
+			'userPassword' => $userPassword,
+			'orderId' => $orderId,
+			'amount' => $amount,
+			'localDate' => $localDate,
+			'localTime' => $localTime,
+			'additionalData' => $additionalData,
+			'callBackUrl' => $callBackUrl,
+			'payerId' => $payerId);
+		$result = $client->call('bpPayRequest', $parameters, 'http://interfaces.core.sw.bps.com/');
+		if ($client->fault) {
+			echo '<h2>Fault</h2><pre>';
+			print_r($result);
+			echo '</pre>';
+			die();
+		} 
+		else {
+			$resultStr  = $result;
+			$err = $client->getError();
+			if ($err) {
+				echo '<h2>Error</h2><pre>' . $err . '</pre>';
+				die();
+			} 
+			else {
+				$res = explode (',',$resultStr);
+				echo '<div style="display:none;">Pay Response is : ' . $resultStr . '</div>';
+				$ResCode = $res[0];	
+				$ref_id=$res[1];
+				if ($ResCode == "0") {
+				    session::put('ref_id',$ref_id);
+                    session::put('payerId',$payerId);
+                    session::put('customer_id',$customer_id);
+                    session::put('user_id',$customer_id);
+                    session::put('tour_id',$tour_id);
+                    session::put('callBackUrl',$callBackUrl);
+                    session::put('order_id',$order_id);
+                    $comand1=DB::table('tbl_order')->where('order_id',$order_id)->update(['order_status'=>0,'order_time'=>$localTime,'order_timeId'=>$ref_id]);
+					$this->postRefId($res[1]);
+				} 
+				else {
+					$this->error($ResCode);
+				}
+			}
+		}
+			
+	}
+	
+    public function callback(){
+//menu
+$all_categories = DB::table('tbl_category')->where('publication_status',1)->get();
+$cat_parent1 = DB::table('tbl_category')->where('publication_status',1)->where('category_parent1',0)->get();
+$all_hoteCategories = DB::table('tbl_hotelCategory')->where('publication_status',1)->get();
+$cat_hotelParent1 = DB::table('tbl_hotelCategory')->where('category_parent1',0)->where('publication_status',1)->get();
+
+echo $_POST['ResCode'];
+if ($_POST['ResCode'] == '0') {
+//--پرداخت در بانک باموفقیت بوده
+include_once('lib/nusoap.php');
+$client = new nusoap_client('https://bpm.shaparak.ir/pgwchannel/services/pgw?wsdl');
+$namespace='http://interfaces.core.sw.bps.com/';
+
+
+$terminalId = '5176736';//$this->terminal;
+$userName = 'okshod2';
+$userPassword ='35492792'; //$this->password;
+
+$orderId		= $_POST['SaleOrderId'];		// Order ID
+
+$verifySaleOrderId= $_POST['SaleOrderId'];
+$verifySaleReferenceId= $_POST['SaleReferenceId'];
+
+$parameters = array(
+'terminalId' => $terminalId,
+'userName' => $userName,
+'userPassword' => $userPassword,
+'orderId' => $orderId,
+'saleOrderId' => $verifySaleOrderId,
+'saleReferenceId' => $verifySaleReferenceId);
+// Call the SOAP method
+$result = $client->call('bpVerifyRequest', $parameters, $namespace);
+if($result == 0) {
+//-- وریفای به درستی انجام شد٬ درخواست واریز وجه
+// Call the SOAP method
+$result = $client->call('bpSettleRequest', $parameters, $namespace);
+if($result == 0) {
+//-- تمام مراحل پرداخت به درستی انجام شد.
+//-- آماده کردن خروجی
+//echo 'The transaction was successful';
+$callBackUrl=Session::get('callBackUrl');//$_SESSION['callBackUrl'];
+$user_id=Session::get('customer_id');//$_SESSION['payer_id'];
+$customer_id=Session::get('customer_id');//$_SESSION['customer_id'];
+$tour_id=Session::get('tour_id');
+$order_id=Session::get('order_id');
+$order = DB::table('tbl_order')->where(['order_id'=>$order_id])->first();
+$tracking_code=$order->order_trackingCode;
+
+
+$ref_id=Session::get('ref_id'); //$_SESSION['ref_id'];
+$comand=DB::table('tbl_order')->where('order_timeId', $ref_id)->update(['order_payment' => 1,'order_status'=>2]);
+//$comand=docommand("UPDATE link_trans SET trans_status=1 WHERE order_timeId='$ref_id'");
+
+
+
+
+$customer_email="";
+$ajancy_email="";
+
+$customer = DB::table('tbl_customer')->where(['customer_id'=>$user_id])->first();
+$customer_email=$customer->customer_email;
+
+
+//ajancy_email
+
+$tour = DB::table('tbl_tour')->where(['tour_id'=>$tour_id])->first();
+$tour_ajancy=$tour->ajancy_id;
+$ajancy = DB::table('tbl_ajancy')->where(['ajancy_id'=>$tour_ajancy])->first();
+$ajancy_email=$ajancy->ajancy_email;
+$ajancy_phone=$ajancy->ajancy_phone;
+$comand2 = DB::table('tbl_order')->where(['order_timeId'=>$ref_id])->update(['order_status'=>1]);
+
+if($comand2)
+{
+    //send mail to customer
+    $subject = " ثبت سفارش- اوکی شد ";
+    $header = "okShod.com";
+    $body ="سفارش شا با موفقیت ثبت شد. جهت ارائه مدارک لازم با آژانس مربوطه تماس حاصل نمایید";
+   $body.="شماره تلفن آژانس :".$ajancy_phone;
+    $data = array('name'=>$body);
+    Mail::send('mails.mail', $data, function($message) use ($customer_email) {
+    $message->to($customer_email, 'okshod.com')->subject('فروش تورهای داخلی و خارجی -');
+    $message->from('info@okshod.com','okShod');});
+
+
+    $subject1 = " ثبت سفارش- اوکی شد ";
+    $header1 = "okShod.com";
+    
+    $body1="سفارش جدیدی برای شما ارسال شده است.جهت کسب اطلاعات بیشتر به پنل کاربری آژانس مراجعه نمایید";
+    $data1 = array('name'=>$body1);
+    
+    Mail::send('mails.mail', $data1, function($message) use ($ajancy_email) {
+    $message->to($ajancy_email, 'okshod.com')->subject('فروش تورهای داخلی و خارجی -');
+    $message->from('info@okshod.com','okShod');
+});
+
+
+    return View('pages.callback')->with([
+    'all_categories'=>$all_categories,
+    'cat_parent1'=> $cat_parent1,
+    'all_hoteCategories'=>$all_hoteCategories,
+    'cat_hotelParent1'=>$cat_hotelParent1,
+     'error'=>0,
+    'msg'=>$tracking_code
+    ]);
+}
+else{
+
+    return View('pages.callback')->with([
+    'all_categories'=>$all_categories,
+    'cat_parent1'=> $cat_parent1,
+    'all_hoteCategories'=>$all_hoteCategories,
+    'cat_hotelParent1'=>$cat_hotelParent1,
+      'error'=>1,
+     'msg'=>'مشکل در ارتباط با دیتابیس'
+    ]);
+    
+}
+
+
+} else {
+//-- در درخواست واریز وجه مشکل به وجود آمد. درخواست بازگشت وجه داده شود.
+$client->call('bpReversalRequest', $parameters, $namespace);
+//echo 'Error : '. $result;
+ return View('pages.callback')->with([
+    'all_categories'=>$all_categories,
+    'cat_parent1'=> $cat_parent1,
+    'all_hoteCategories'=>$all_hoteCategories,
+    'cat_hotelParent1'=>$cat_hotelParent1,
+      'error'=>1,
+     'msg'=>$result
+    ]);
+}
+} else {
+//-- وریفای به مشکل خورد٬ نمایش پیغام خطا و بازگشت زدن مبلغ
+$client->call('bpReversalRequest', $parameters, $namespace);
+//echo 'Error : '. $result;
+ return View('pages.callback')->with([
+    'all_categories'=>$all_categories,
+    'cat_parent1'=> $cat_parent1,
+    'all_hoteCategories'=>$all_hoteCategories,
+    'cat_hotelParent1'=>$cat_hotelParent1,
+     'error'=>1,
+     'msg'=>$result
+    ]);
+}
+} else {
+//-- پرداخت با خطا همراه بوده
+echo 'Error : '. $_POST['ResCode'];
+ return View('pages.callback')->with([
+    'all_categories'=>$all_categories,
+    'cat_parent1'=> $cat_parent1,
+    'all_hoteCategories'=>$all_hoteCategories,
+    'cat_hotelParent1'=>$cat_hotelParent1,
+     'error'=>1,
+     'msg'=>$_POST['ResCode']
+    ]);
+}
+
+}
+    
+   
+}
