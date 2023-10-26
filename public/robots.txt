@@ -1,0 +1,21 @@
+User-agent:*
+Disallow: /okadminshod/
+Disallow: /userokshod/
+Disallow: /customer/
+Disallow: /wp-admin/
+Disallow: /wp-login/
+Disallow: /wp-includes/
+Disallow: /order/
+Allow: /contact/
+Allow: /about/
+Allow: /rules/
+Allow: /landing/
+Allow: /help/
+Allow: /tours/
+Allow: /tour_info/
+Allow: /hotels/
+Allow: /hotel_info/
+
+
+Sitemap: https://okshod.com/sitemap.xml
+Sitemap: https://blog.okshod.com/sitemap_index.xml
